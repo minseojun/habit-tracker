@@ -1,17 +1,11 @@
-import os
-import sys
-import json
-import random
-import requests
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+import requests
 
 import db
-from utils.stats import build_seven_day_summary, compute_today_achievement, items_to_dataframe
-from utils.streaks import compute_daily_streak
 
-# OpenAI (있어야 코칭 기능 동작)
+# OpenAI (없으면 코칭 기능 비활성화)
 try:
     from openai import OpenAI
 except Exception:
@@ -21,7 +15,7 @@ st.set_page_config(page_title="AI Habit Tracker", page_icon="✅", layout="wide"
 
 
 # =========================================================
-# Helpers: Secrets / Sidebar input
+# Secrets / Sidebar input
 # =========================================================
 def get_secret_or_sidebar(key_name: str, label: str, password: bool = True) -> str:
     if key_name in st.secrets and st.secrets[key_name]:
@@ -36,7 +30,90 @@ def get_secret_or_sidebar(key_name: str, label: str, password: bool = True) -> s
 
 
 # =========================================================
-# Weather (OpenWeatherMap) - inlined to avoid import errors
+# Inlined utils.stats / utils.streaks equivalents
+# =========================================================
+def items_to_dataframe(items):
+    if not items:
+        return pd.DataFrame()
+    return pd.DataFrame(items)
+
+
+def compute_today_achievement(habits, today_values: dict):
+    """
+    returns: (rate_percent, success_count, total_count)
+    success: value >= goal
+    """
+    if not habits:
+        return 0.0, 0, 0
+    total = 0
+    success = 0
+    for h in habits:
+        total += 1
+        hid = int(h["habit_id"])
+        goal = int(h["goal"])
+        v = int(today_values.get(hid, 0))
+        if v >= goal:
+            success += 1
+    rate = (success / total * 100.0) if total > 0 else 0.0
+    return rate, success, total
+
+
+def build_seven_day_summary(items_7d):
+    """
+    아주 단순한 7일 요약(사람이 보기 좋게)
+    """
+    if not items_7d:
+        return "최근 7일 데이터가 없어요."
+    df = pd.DataFrame(items_7d)
+    if df.empty:
+        return "최근 7일 데이터가 없어요."
+
+    df["success"] = df["value"].astype(int) >= df["goal"].astype(int)
+    lines = []
+    lines.append("### 최근 7일 요약")
+    daily = df.groupby("date")["success"].mean().reset_index()
+    daily["rate"] = (daily["success"] * 100).round(0).astype(int)
+    lines.append("- 일자별 달성률:")
+    for _, r in daily.iterrows():
+        lines.append(f"  - {r['date']}: {r['rate']}%")
+    by_habit = df.groupby("name")["success"].mean().reset_index()
+    by_habit["rate"] = (by_habit["success"] * 100).round(0).astype(int)
+    lines.append("- 습관별 평균 달성률:")
+    for _, r in by_habit.sort_values("rate", ascending=False).iterrows():
+        lines.append(f"  - {r['name']}: {r['rate']}%")
+    return "\n".join(lines)
+
+
+def compute_daily_streak(items, habit_id: int, goal: int, end_date_str: str):
+    """
+    특정 daily 습관이 end_date 기준으로 연속 성공한 일수.
+    items: db.get_items_between 결과(list of dict)
+    """
+    # date -> success mapping for this habit
+    end_d = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    m = {}
+    for it in items:
+        if int(it["habit_id"]) != int(habit_id):
+            continue
+        d = it["date"]
+        ok = int(it["value"]) >= int(it["goal"])
+        # 같은 날짜가 중복되면 success면 True 유지
+        m[d] = m.get(d, False) or ok
+
+    streak = 0
+    cur = end_d
+    while True:
+        ds = cur.strftime("%Y-%m-%d")
+        if m.get(ds, False):
+            streak += 1
+            cur = cur - timedelta(days=1)
+        else:
+            break
+    return streak
+
+
+# =========================================================
+# Weather (OpenWeatherMap)
 # =========================================================
 def fetch_current_weather(city: str, api_key: str):
     if not api_key or not city:
@@ -82,7 +159,7 @@ def cached_weather(city: str, api_key: str):
 
 
 # =========================================================
-# Dog API - inlined
+# Dog API
 # =========================================================
 def fetch_random_dog_images(n: int = 1):
     n = max(1, int(n))
@@ -103,7 +180,7 @@ def cached_dogs(n: int):
 
 
 # =========================================================
-# Coach (OpenAI) - inlined MVP
+# Coach (OpenAI)
 # =========================================================
 TONES = ["친근하게", "차분하게", "엄격하게", "유쾌하게"]
 
@@ -166,121 +243,6 @@ def generate_coaching(
 
 
 # =========================================================
-# New features (MVP hooks)
-# - If db.py doesn't have these, show 안내만
-# =========================================================
-def has_db_fn(name: str) -> bool:
-    return hasattr(db, name) and callable(getattr(db, name))
-
-
-def render_smart_scheduler(date_str: str):
-    st.subheader("오늘의 추천 TOP 3 🎯")
-    if not has_db_fn("recommend_habits"):
-        st.info("스마트 스케줄러 기능이 아직 DB에 연결되지 않았어요. (db.recommend_habits 필요)")
-        return
-    recs = db.recommend_habits(date_str, top_k=3)
-    if not recs:
-        st.info("추천할 항목이 없어요.")
-        return
-    cols = st.columns(3)
-    for i, r in enumerate(recs[:3]):
-        with cols[i]:
-            with st.container(border=True):
-                st.markdown(f"**{r.get('name','(no name)')}**")
-                st.caption(f"{r.get('frequency')} · goal={r.get('goal')}")
-                if r.get("progress_text"):
-                    st.write(r["progress_text"])
-                st.info(r.get("reason", "오늘 해두면 좋아요."))
-                if st.button("바로 체크하기", key=f"quick_{date_str}_{r.get('habit_id',i)}"):
-                    chk = db.get_checkin(date_str)
-                    checkin_id = db.upsert_checkin(date_str, chk["checkin"].get("note") if chk else "")
-                    db.upsert_checkin_item(checkin_id, int(r["habit_id"]), int(r["goal"]))
-                    st.success("체크 완료!")
-                    st.rerun()
-
-
-def render_dog_album():
-    st.header("🐶 강아지 도감")
-    if not has_db_fn("list_dog_collection"):
-        st.info("도감 기능이 아직 DB에 연결되지 않았어요. (db.list_dog_collection 필요)")
-        return
-
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        scope = st.selectbox("기간", options=["최근 7일", "전체"], index=0)
-    with c2:
-        rarity = st.selectbox("등급", options=["전체", "common", "rare", "epic", "common_or_rare"], index=0)
-    with c3:
-        per_row = st.selectbox("열 개수", options=[3, 4, 5], index=1)
-
-    date_from = None
-    if scope == "최근 7일":
-        date_from = (date.today() - timedelta(days=6)).strftime("%Y-%m-%d")
-
-    rows = db.list_dog_collection(date_from=date_from, rarity=None if rarity == "전체" else rarity)
-    if not rows:
-        st.info("아직 도감 기록이 없어요. 체크인을 저장하고 습관을 달성해보세요!")
-        return
-
-    cols = st.columns(per_row)
-    for i, r in enumerate(rows):
-        with cols[i % per_row]:
-            with st.container(border=True):
-                st.image(r["image_url"], use_container_width=True)
-                st.caption(f"{r['date']} · {r['rarity']} · {r['earned_by']}")
-
-    st.divider()
-    df = pd.DataFrame(rows)
-    st.download_button(
-        "도감 CSV 다운로드",
-        data=df.to_csv(index=False).encode("utf-8-sig"),
-        file_name="dog_collection.csv",
-        mime="text/csv",
-    )
-
-
-def render_groups(nickname: str):
-    st.header("👥 그룹: 함께 streak (MVP)")
-    if not (has_db_fn("create_group") and has_db_fn("join_group") and has_db_fn("list_groups_for_nickname")):
-        st.info("그룹 기능이 아직 DB에 연결되지 않았어요. (groups 관련 db 함수 필요)")
-        return
-
-    with st.container(border=True):
-        st.subheader("1) 그룹 생성")
-        name = st.text_input("그룹 이름", placeholder="예: 아침 루틴 팀")
-        if st.button("그룹 만들기"):
-            if not name.strip():
-                st.error("그룹 이름이 필요해요.")
-            else:
-                code = db.create_group(name.strip())
-                st.success(f"그룹 생성 완료! 코드: {code}")
-                st.code(code)
-
-    st.divider()
-    with st.container(border=True):
-        st.subheader("2) 그룹 참여")
-        code_in = st.text_input("그룹 코드", placeholder="예: A1B2C3D4")
-        if st.button("참여하기"):
-            if not code_in.strip():
-                st.error("그룹 코드를 입력해 주세요.")
-            else:
-                db.join_group(code_in.strip(), nickname)
-                st.success("참여 완료!")
-                st.rerun()
-
-    st.divider()
-    my_groups = db.list_groups_for_nickname(nickname)
-    if not my_groups:
-        st.caption("아직 참여한 그룹이 없어요.")
-        return
-
-    pick = st.selectbox("내 그룹 선택", options=[g["group_code"] for g in my_groups])
-    if has_db_fn("get_group_by_code"):
-        g = db.get_group_by_code(pick)
-        st.subheader(f"그룹 현황: {g['name']} ({g['group_code']})")
-
-
-# =========================================================
 # Boot
 # =========================================================
 def ensure_seed():
@@ -308,7 +270,7 @@ owm_key = get_secret_or_sidebar("OPENWEATHER_API_KEY", "OpenWeatherMap API Key")
 
 menu = st.sidebar.radio(
     "메뉴",
-    options=["오늘 체크인", "습관 관리", "대시보드/통계", "AI 코칭 기록", "🐶 도감", "👥 그룹(함께 streak)"],
+    options=["오늘 체크인", "습관 관리", "대시보드/통계", "AI 코칭 기록"],
 )
 
 st.sidebar.divider()
@@ -318,9 +280,6 @@ with st.sidebar.expander("고급 설정"):
     if st.button("캐시 초기화(날씨/강아지)"):
         st.cache_data.clear()
         st.success("초기화 완료!")
-
-
-habits = db.list_habits()
 
 
 # =========================================================
@@ -388,10 +347,6 @@ def page_today():
     selected_date = st.date_input("날짜 선택", value=default_date)
     st.session_state["selected_date"] = selected_date
     date_str = selected_date.strftime("%Y-%m-%d")
-
-    # ✅ 스마트 스케줄러(있으면 표시)
-    render_smart_scheduler(date_str)
-    st.divider()
 
     # weather
     weather = None
@@ -478,7 +433,6 @@ def page_today():
     rate, success_count, total_count = compute_today_achievement(hs, today_values)
     st.write(f"- 달성률: **{rate:.0f}%** ({success_count}/{total_count})")
 
-    # streak top 3 (daily)
     start_30 = (selected_date - timedelta(days=60)).strftime("%Y-%m-%d")
     items_60d = db.get_items_between(start_30, date_str)
     streak_rows = []
@@ -494,7 +448,7 @@ def page_today():
         for name, s in top3:
             st.write(f"- {name}: {s}일 연속")
 
-    # ✅ 버그 수정: “성공한 습관이 1개 이상일 때만” 강아지 표시
+    # ✅ 강아지 보상: 체크인 저장 + 성공 1개 이상일 때만 노출
     st.divider()
     st.subheader("오늘의 보상 🐶")
     if total_count == 0:
@@ -616,21 +570,6 @@ def page_dashboard():
     by_habit["success_rate"] = by_habit["success"] * 100.0
     st.bar_chart(by_habit.set_index("name")[["success_rate"]])
 
-    st.subheader("가장 긴 streak TOP 3 (daily)")
-    streak_rows = []
-    for h in hs:
-        if h["frequency"] != "daily":
-            continue
-        s = compute_daily_streak(items, int(h["habit_id"]), int(h["goal"]), end_s)
-        streak_rows.append((h["name"], s))
-    streak_rows.sort(key=lambda x: x[1], reverse=True)
-    top3 = streak_rows[:3]
-    if top3:
-        for name, s in top3:
-            st.write(f"- {name}: {s}일 연속")
-    else:
-        st.info("daily 습관이 없거나 streak를 계산할 데이터가 없어요.")
-
 
 def page_logs():
     st.header("AI 코칭 기록")
@@ -662,7 +601,6 @@ def page_logs():
     st.markdown(selected["output_text"])
 
     st.divider()
-    st.subheader("내보내기")
     export_df = pd.DataFrame(logs)
     st.download_button(
         "코칭 로그 CSV 다운로드",
@@ -679,9 +617,5 @@ elif menu == "대시보드/통계":
     page_dashboard()
 elif menu == "AI 코칭 기록":
     page_logs()
-elif menu == "🐶 도감":
-    render_dog_album()
-elif menu == "👥 그룹(함께 streak)":
-    render_groups(st.session_state["nickname"])
 else:
     page_today()
