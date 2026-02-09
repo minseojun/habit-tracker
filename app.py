@@ -43,17 +43,21 @@ def main():
     today = date.today()
     today_str = today.isoformat()
 
-    # =========================
+        # =========================
     # 사이드바
     # =========================
     st.sidebar.title("✅ AI 습관 트래커")
     st.sidebar.caption("날씨·성과 기반 코칭 + 강아지 보상 🐶")
 
-    profile = db.get_profile() or {"nickname": "", "city": "", "daily_goal_n": 1}
+    profile = db.get_profile() or {
+        "nickname": "",
+        "city": "",
+        "daily_goal_n": 1,
+    }
 
-    # ---- 프로필 설정 ----
     with st.sidebar.container(border=True):
         st.subheader("프로필 설정")
+
         nickname = st.text_input("닉네임", value=profile["nickname"])
         city = st.text_input("도시(날씨)", value=profile["city"])
         daily_goal_n = st.number_input(
@@ -73,35 +77,29 @@ def main():
 
         st.caption(f"오늘 날짜: {today_str}")
 
-    # ---- API 키 로컬 입력 (🔥 여기 indentation 문제 해결됨) ----
-   with st.sidebar.container(border=True):
-    st.subheader("API 키 (로컬 입력)")
-    st.caption("※ 새로고침 시 유지됨, 배포 시 비권장")
+    with st.sidebar.container(border=True):
+        st.subheader("API 키 (로컬 입력)")
 
-    openai_key_input = st.text_input(
-        "OpenAI API Key",
-        type="password",
-        placeholder="sk-...",
-        value=st.session_state.get("OPENAI_API_KEY", "")
-    )
-    if openai_key_input.strip():
-        st.session_state["OPENAI_API_KEY"] = openai_key_input.strip()
+        openai_key = st.text_input(
+            "OpenAI API Key",
+            type="password",
+            value=st.session_state.get("OPENAI_API_KEY", ""),
+        )
+        if openai_key.strip():
+            st.session_state["OPENAI_API_KEY"] = openai_key.strip()
 
-    weather_key_input = st.text_input(
-        "OpenWeatherMap API Key",
-        type="password",
-        placeholder="OpenWeather 키",
-        value=st.session_state.get("OPENWEATHER_API_KEY", "")
-    )
-    if weather_key_input.strip():
-        st.session_state["OPENWEATHER_API_KEY"] = weather_key_input.strip()
+        weather_key = st.text_input(
+            "OpenWeatherMap API Key",
+            type="password",
+            value=st.session_state.get("OPENWEATHER_API_KEY", ""),
+        )
+        if weather_key.strip():
+            st.session_state["OPENWEATHER_API_KEY"] = weather_key.strip()
 
-    st.success("키는 이 세션에서만 사용됩니다.")
-
-    # ---- AI 설정 ----
     with st.sidebar.container(border=True):
         st.subheader("AI 설정")
         model = st.selectbox("모델 선택", ["gpt-4o-mini", "gpt-4o"])
+
         if st.button("🧠 오늘의 AI 코치"):
             st.session_state["run_ai_coach"] = True
 
