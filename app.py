@@ -1,15 +1,32 @@
+import os
+import sys
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 
+# ✅ 현재 파일(app.py) 폴더를 sys.path에 강제로 추가 (Streamlit Cloud에서 확실하게 잡힘)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 import db
-from services.weather import fetch_current_weather, weather_to_summary, simple_weather_hint
-from services.dog import fetch_random_dog_images
-from services.coach import generate_coaching, TONES
+
+# ✅ services 모듈 import (폴더/패키지 인식 문제 대비)
+try:
+    from services.weather import fetch_current_weather, weather_to_summary, simple_weather_hint
+    from services.dog import fetch_random_dog_images
+    from services.coach import generate_coaching, TONES
+except ModuleNotFoundError:
+    # fallback: services 폴더를 직접 path에 추가
+    SERVICES_DIR = os.path.join(BASE_DIR, "services")
+    if SERVICES_DIR not in sys.path:
+        sys.path.insert(0, SERVICES_DIR)
+    from weather import fetch_current_weather, weather_to_summary, simple_weather_hint
+    from dog import fetch_random_dog_images
+    from coach import generate_coaching, TONES
+
 from utils.stats import build_seven_day_summary, compute_today_achievement, items_to_dataframe
 from utils.streaks import compute_daily_streak
-
-st.set_page_config(page_title="AI Habit Tracker", page_icon="✅", layout="wide")
 
 
 # ---------- Helpers ----------
