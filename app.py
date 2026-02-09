@@ -74,19 +74,29 @@ def main():
         st.caption(f"오늘 날짜: {today_str}")
 
     # ---- API 키 로컬 입력 (🔥 여기 indentation 문제 해결됨) ----
-    with st.sidebar.container(border=True):
-        st.subheader("API 키 (로컬 입력)")
-        st.caption("※ 새로고침 시 유지됨, 배포 시 비권장")
+   with st.sidebar.container(border=True):
+    st.subheader("API 키 (로컬 입력)")
+    st.caption("※ 새로고침 시 유지됨, 배포 시 비권장")
 
-        openai_key_input = st.text_input(
-            "OpenAI API Key",
-            type="password",
-            placeholder="sk-...",
-        )
+    openai_key_input = st.text_input(
+        "OpenAI API Key",
+        type="password",
+        placeholder="sk-...",
+        value=st.session_state.get("OPENAI_API_KEY", "")
+    )
+    if openai_key_input.strip():
+        st.session_state["OPENAI_API_KEY"] = openai_key_input.strip()
 
-        if openai_key_input:
-            st.session_state["OPENAI_API_KEY"] = openai_key_input
-            st.success("OpenAI API 키가 설정되었습니다")
+    weather_key_input = st.text_input(
+        "OpenWeatherMap API Key",
+        type="password",
+        placeholder="OpenWeather 키",
+        value=st.session_state.get("OPENWEATHER_API_KEY", "")
+    )
+    if weather_key_input.strip():
+        st.session_state["OPENWEATHER_API_KEY"] = weather_key_input.strip()
+
+    st.success("키는 이 세션에서만 사용됩니다.")
 
     # ---- AI 설정 ----
     with st.sidebar.container(border=True):
