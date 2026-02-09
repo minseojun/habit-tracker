@@ -59,9 +59,16 @@ USER_WEEKLY_TEMPLATE = """최근 7일 데이터 요약:
 
 
 def _get_openai_key() -> str:
+    # 1) 화면에서 직접 입력한 키(session_state)가 있으면 그걸 최우선 사용
+    k = (st.session_state.get("OPENAI_API_KEY") or "").strip()
+    if k:
+        return k
+
+    # 2) 없으면 secrets 사용
     if "OPENAI_API_KEY" in st.secrets:
-        return st.secrets["OPENAI_API_KEY"]
-    return st.session_state.get("OPENAI_API_KEY", "")
+        return (st.secrets["OPENAI_API_KEY"] or "").strip()
+
+    return ""
 
 
 def estimate_cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
