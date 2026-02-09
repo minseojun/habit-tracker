@@ -4,10 +4,16 @@ from typing import Dict, Any
 
 
 def _get_weather_key() -> str:
-    # Streamlit secrets 우선, 없으면 환경변수(.env) 사용
+    # 1) 화면 입력/세션 키 우선
+    k = (st.session_state.get("OPENWEATHER_API_KEY") or "").strip()
+    if k:
+        return k
+
+    # 2) 없으면 secrets
     if "OPENWEATHER_API_KEY" in st.secrets:
-        return st.secrets["OPENWEATHER_API_KEY"]
-    return st.session_state.get("OPENWEATHER_API_KEY", "")
+        return (st.secrets["OPENWEATHER_API_KEY"] or "").strip()
+
+    return ""
 
 
 @st.cache_data(ttl=600)  # 10분 캐시
