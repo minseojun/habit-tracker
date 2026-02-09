@@ -48,6 +48,12 @@ def main():
     st.sidebar.title("✅ AI 습관 트래커")
     st.sidebar.caption("날씨·성과 기반 코칭 + 강아지 보상 🐶")
 
+    with st.sidebar.container(border=True):
+    st.subheader("API 키(로컬 입력)")
+    openai_key_input = st.text_input("OpenAI API Key", type="password")
+    if openai_key_input:
+        st.session_state["OPENAI_API_KEY"] = openai_key_input
+
     profile = db.get_profile()
     if profile is None:
         profile = {"nickname": "", "city": "", "daily_goal_n": 1}
